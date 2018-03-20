@@ -155,15 +155,15 @@ int main(int argc, char* argv[])
 	int uvPitch;
 	
 	av_register_all();
+	//Register Device
+	avdevice_register_all();
+
 	avformat_network_init();
 	pFormatCtx = avformat_alloc_context();
-	
+
 	//Open File
 	//char filepath[]="src01_480x272_22.h265";
 	//avformat_open_input(&pFormatCtx,filepath,NULL,NULL)
-
-	//Register Device
-	avdevice_register_all();
 
 //Windows
 #ifdef _WIN32
@@ -184,7 +184,13 @@ int main(int argc, char* argv[])
 	}
 #else
 	AVInputFormat *ifmt=av_find_input_format("vfwcap");
-	if(avformat_open_input(&pFormatCtx,"0",ifmt,NULL)!=0){
+	if (ifmt == NULL)
+	{
+		printf("can not find_input_format\n");
+		return -1;
+	}
+	char *dev_name = "0";
+	if(avformat_open_input(&pFormatCtx, dev_name,ifmt,NULL)!=0){
 		printf("Couldn't open input stream.\n");
 		return -1;
 	}
@@ -238,9 +244,10 @@ int main(int argc, char* argv[])
 		printf("Could not open codec.\n");
 		return -1;
 	}
-	AVFrame	*pFrame,*pFrameYUV;
+	AVFrame	*pFrame;
+//	AVFrame *pFrameYUV;
 	pFrame=av_frame_alloc();
-	pFrameYUV=av_frame_alloc();
+//	pFrameYUV=av_frame_alloc();
 	//unsigned char *out_buffer=(unsigned char *)av_malloc(avpicture_get_size(AV_PIX_FMT_YUV420P, pCodecCtx->width, pCodecCtx->height));
 	//avpicture_fill((AVPicture *)pFrameYUV, out_buffer, AV_PIX_FMT_YUV420P, pCodecCtx->width, pCodecCtx->height);
 	//SDL----------------------------
@@ -288,6 +295,7 @@ int main(int argc, char* argv[])
 		fprintf(stderr, "Could not allocate pixel buffers - exiting\n");
 		exit(1);
 	}
+	uvPitch = pCodecCtx->width / 2;
 
 	//------------------------------
 	SDL_Thread *video_tid = SDL_CreateThread(sfp_refresh_thread,NULL, NULL);
@@ -297,7 +305,7 @@ int main(int argc, char* argv[])
 	for (;;) {
 		//Wait
 		SDL_WaitEvent(&event);
-		if(event.type==SFM_REFRESH_EVENT){
+		if(event.type==SFM_REFRESH_EVENT) {
 			//------------------------------
 			if(av_read_frame(pFormatCtx, packet)>=0){
 				if(packet->stream_index==videoindex){
@@ -315,13 +323,13 @@ int main(int argc, char* argv[])
 						pict.linesize[1] = uvPitch;
 						pict.linesize[2] = uvPitch;
 
-						sws_scale(img_convert_ctx, (const unsigned char* const*)pFrame->data, pFrame->linesize, 0, pCodecCtx->height, pFrameYUV->data, pFrameYUV->linesize);
+						sws_scale(img_convert_ctx, (const unsigned char* const*)pFrame->data, pFrame->linesize, 0, pCodecCtx->height, pict.data, pict.linesize);
 
 #if OUTPUT_YUV420P  
 						int y_size=pCodecCtx->width*pCodecCtx->height;    
-						fwrite(pFrameYUV->data[0],1,y_size,fp_yuv);    //Y   
-						fwrite(pFrameYUV->data[1],1,y_size/4,fp_yuv);  //U  
-						fwrite(pFrameYUV->data[2],1,y_size/4,fp_yuv);  //V  
+						fwrite(pict->data[0],1,y_size,fp_yuv);    //Y   
+						fwrite(pict->data[1],1,y_size/4,fp_yuv);  //U  
+						fwrite(pict->data[2],1,y_size/4,fp_yuv);  //V  
 #endif  
 					   // Lock my texture 
 						//SDL_UpdateYUVTexture(texture, NULL, pFrame->data[0], pFrame->linesize[0],
@@ -343,11 +351,12 @@ int main(int argc, char* argv[])
 						SDL_Rect windows_rect; windows_rect.x = 0; windows_rect.y = 0; windows_rect.w = WINDOWS_WIDTH; windows_rect.h = WINDOWS_HEIGHT;
 
 						SDL_RenderClear(renderer);
-						SDL_RenderCopy(renderer, texture, &texure_rect, &windows_rect);
+						SDL_RenderCopy(renderer, texture, &windows_rect, &texure_rect);
 						SDL_RenderPresent(renderer);
 					}
 				}
-				av_free_packet(packet);
+				if(packet != NULL)
+					av_free_packet(packet);
 			}else{
 				//Exit Thread
 				thread_exit=1;
@@ -373,7 +382,10 @@ int main(int argc, char* argv[])
 #endif 
 
 	//av_free(out_buffer);
-	av_free(pFrameYUV);
+//	av_free(pFrameYUV);
+
+	if(pFrame != NULL)
+		av_free(pFrame);
 
 	free(yPlane);
 	free(uPlane);
